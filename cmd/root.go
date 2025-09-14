@@ -6,8 +6,6 @@ package cmd
 
 import (
 	"os"
-	"nonexistent/package"  // This import doesn't exist
-
 	"github.com/spf13/cobra"
 )
 
