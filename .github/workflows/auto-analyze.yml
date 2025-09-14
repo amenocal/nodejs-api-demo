@@ -1,0 +1,166 @@
+
+name: Auto Analyze Build Failures
+
+on:
+  workflow_run:
+    workflows: ["*"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+  pull-requests: read
+  models: read
+
+jobs:
+  analyze-failure:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.name != 'Auto Analyze Build Failures' }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Analyze build failure
+      id: analyze
+      uses: actions/ai-inference@v1
+      with:
+        prompt-file: '.github/models/failed-run-analyze.prompt.yml'
+        enable-github-mcp: true
+        token: ${{ secrets.GITHUB_TOKEN }}
+        github-mcp-token: ${{ secrets.AUTO_REMEDIATION_PAT }}
+        max-tokens: 10000
+        input: |
+          repo: ${{ github.event.repository.name }}
+          owner: ${{ github.event.repository.owner.login }}
+          workflow_run_id: ${{ github.event.workflow_run.id }}
+
+    - name: Parse results
+      id: parse
+      uses: actions/github-script@v7
+      env:
+        RESPONSE_JSON: ${{ steps.analyze.outputs.response }}
+      with:
+        script: |
+          const responseString = process.env.RESPONSE_JSON;
+          if (!responseString) {
+            core.setFailed('No response received from analysis step');
+            return;
+          }
+          const responseJSON = JSON.parse(responseString);
+          core.setOutput('category', responseJSON.category || '');
+          core.setOutput('summary', responseJSON.summary || '');
+          core.setOutput('plan', responseJSON.plan || '');
+          core.setOutput('transient', responseJSON.transient || 'false');
+
+    - name: Check for existing remediation issue
+      if: ${{ steps.parse.outputs.transient == 'false' }}
+      id: check-issue
+      run: |
+        workflow_name="${{ github.event.workflow_run.name }}"
+        existing_issue=$(gh issue list \
+          --repo "${{ github.repository }}" \
+          --state open \
+          --label "workflow:$workflow_name" \
+          --label "auto-remediation" \
+          --json number \
+          --jq '.[0].number')
+        echo "existing_issue=$existing_issue" >> $GITHUB_OUTPUT
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create remediation issue
+      id: create-issue
+      if: ${{ steps.parse.outputs.transient == 'false' }}
+      run: |
+        workflow_name="${{ github.event.workflow_run.name }}"
+        workflow_url="${{ github.event.workflow_run.html_url }}"
+        category="${{ steps.parse.outputs.category }}"
+        existing_issue="${{ steps.check-issue.outputs.existing_issue }}"
+        if [[ -n "$existing_issue" ]]; then
+          echo "Skipping issue creation - existing issue #$existing_issue found"
+          exit 0
+        fi
+
+        issue_body=$(cat << EOF
+        ## Build Failure Analysis
+        
+        **Workflow:** [$workflow_name]($workflow_url)
+        **Run ID:** ${{ github.event.workflow_run.id }}
+        **Category:** $category
+        **Branch:** ${{ github.event.workflow_run.head_branch }}
+        **Commit:** ${{ github.event.workflow_run.head_sha }}
+        
+        ### Summary
+        ${{ steps.parse.outputs.summary }}
+        
+        ### Remediation Plan
+        ${{ steps.parse.outputs.plan }}
+        
+        ### Links
+        - [Failed Workflow Run]($workflow_url)
+        - [Repository](${{ github.event.repository.html_url }})
+        
+        ---
+        *This issue was automatically created by the build failure analysis system.*
+        EOF
+        )
+        
+        # Ensure required labels exist (idempotent)
+        gh label create "auto-remediation" \
+          --description "Issues automatically created by build failure analysis" \
+          --color "FF6B6B" \
+          --repo "${{ github.repository }}" || true
+        gh label create "workflow:$workflow_name" \
+          --description "Issues related to $workflow_name workflow" \
+          --color "0052CC" \
+          --repo "${{ github.repository }}" || true
+        gh label create "category:$category" \
+          --description "Issues categorized as $category" \
+          --color "7057ff" \
+          --repo "${{ github.repository }}" || true
+        
+        issue_url=$(gh issue create \
+          --repo "${{ github.repository }}" \
+          --title "🔧 Auto-Remediation: $workflow_name Build Failure" \
+          --body "$issue_body" \
+          --label "auto-remediation" \
+          --label "workflow:$workflow_name" \
+          --label "category:$category")
+        issue_number=$(echo "$issue_url" | sed 's/.*\/issues\///')
+        echo "issue_number=$issue_number" >> $GITHUB_OUTPUT
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Assign issue to Copilot (optional)
+      if: ${{ steps.parse.outputs.transient == 'false' && steps.create-issue.outputs.issue_number != '' }}
+      run: |
+        category="${{ steps.parse.outputs.category }}"
+        issue_number="${{ steps.create-issue.outputs.issue_number }}"
+        if [[ "$category" == "code" || "$category" == "test" || "$category" == "config" ]]; then
+          echo "Assigning issue #$issue_number to Copilot"
+          # Query suggested actors to find Copilot agent id
+          copilot_query='query {
+            repository(owner: "${{ github.event.repository.owner.login }}", name: "${{ github.event.repository.name }}") {
+              suggestedActors(capabilities: [CAN_BE_ASSIGNED], first: 100) {
+                nodes { login __typename ... on Bot { id } }
+              }
+            }
+          }'
+          copilot_response=$(gh api graphql -f query="$copilot_query")
+          copilot_id=$(echo "$copilot_response" | jq -r '.data.repository.suggestedActors.nodes[] | select(.login == "copilot-swe-agent") | .id')
+          if [[ -n "$copilot_id" && "$copilot_id" != "null" ]]; then
+            issue_query='query { repository(owner: "${{ github.event.repository.owner.login }}", name: "${{ github.event.repository.name }}") { issue(number: '$issue_number') { id } } }'
+            issue_response=$(gh api graphql -f query="$issue_query")
+            issue_id=$(echo "$issue_response" | jq -r '.data.repository.issue.id')
+            assign_mutation='mutation { replaceActorsForAssignable(input: {assignableId: "'$issue_id'", actorIds: ["'$copilot_id'"]}) { assignable { ... on Issue { id } } } }'
+            gh api graphql -f query="$assign_mutation" >/dev/null 2>&1 || echo "Copilot assignment failed"
+          else
+            echo "Copilot agent not available in this repository"
+          fi
+         else
+           echo "Category '$category' does not require Copilot assignment"
+         fi
+      env:
+        GH_TOKEN: ${{ secrets.AUTO_REMEDIATION_PAT }}
