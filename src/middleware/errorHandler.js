@@ -27,6 +27,14 @@ const errorHandler = (err, req, res, next) => {
     });
   }
 
+  // JSON parsing errors
+  if (err.type === 'entity.parse.failed' || err instanceof SyntaxError) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid JSON format'
+    });
+  }
+
   // Default server error
   res.status(500).json({
     success: false,

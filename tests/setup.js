@@ -5,8 +5,8 @@ process.env.NODE_ENV = 'test';
 global.console = {
   ...console,
   log: jest.fn(),
-  error: console.error,
-  warn: console.warn,
+  error: jest.fn(), // Mock console.error to suppress error output in tests
+  warn: jest.fn(),
   info: jest.fn(),
   debug: jest.fn(),
 };
