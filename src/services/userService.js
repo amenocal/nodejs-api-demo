@@ -43,7 +43,7 @@ class UserService {
 
   // Get user by ID
   async getUserById(id) {
-    const user = this.users.find(user => user.id === parseInt(id));
+    const user = this.users.find(user => user.id === id);
     if (!user) {
       throw new Error(`User with ID ${id} not found`);
     }
