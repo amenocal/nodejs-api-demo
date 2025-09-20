@@ -1,6 +1,6 @@
 name: Failed Run Autofix
 description: >-
-  Analyzes CI/CD pipeline failures for the OctoCAT Supply Chain Management
+  Analyzes CI/CD pipeline failures for my nodejs project
   application and provides detailed remediation plans
 model: openai/gpt-4.1
 modelParameters:
