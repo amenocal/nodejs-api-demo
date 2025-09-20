@@ -61,8 +61,66 @@ const validateQueryParams = (req, res, next) => {
   next();
 };
 
+// Request validation middleware for posts
+const validatePostInput = (req, res, next) => {
+  const { title, content, status } = req.body;
+
+  if (!title || typeof title !== 'string' || title.trim().length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Title is required and must be a non-empty string'
+    });
+  }
+
+  if (title.trim().length > 200) {
+    return res.status(400).json({
+      success: false,
+      message: 'Title must not exceed 200 characters'
+    });
+  }
+
+  if (!content || typeof content !== 'string' || content.trim().length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Content is required and must be a non-empty string'
+    });
+  }
+
+  if (content.trim().length > 10000) {
+    return res.status(400).json({
+      success: false,
+      message: 'Content must not exceed 10000 characters'
+    });
+  }
+
+  if (status && !['draft', 'published'].includes(status)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Status must be either "draft" or "published"'
+    });
+  }
+
+  next();
+};
+
+// Validate post ID parameter
+const validatePostId = (req, res, next) => {
+  const { id } = req.params;
+  
+  if (!id || isNaN(id) || parseInt(id) <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Valid post ID is required'
+    });
+  }
+
+  next();
+};
+
 module.exports = {
   validateUserInput,
   validateUserId,
-  validateQueryParams
+  validateQueryParams,
+  validatePostInput,
+  validatePostId
 };

@@ -19,6 +19,14 @@ const errorHandler = (err, req, res, next) => {
     });
   }
 
+  // Authorization errors
+  if (err.message.includes('can only') || err.message.includes('unauthorized') || err.message.includes('permission')) {
+    return res.status(403).json({
+      success: false,
+      message: err.message
+    });
+  }
+
   // Conflict errors (duplicate email, etc.)
   if (err.message.includes('already exists') || err.message.includes('duplicate')) {
     return res.status(409).json({
