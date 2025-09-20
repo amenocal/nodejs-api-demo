@@ -9,6 +9,7 @@ const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 // Import routes
 const indexRoutes = require('./routes/index');
 const userRoutes = require('./routes/users');
+const postRoutes = require('./routes/posts');
 
 // Create Express app
 const app = express();
@@ -34,6 +35,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Routes
 app.use('/', indexRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/posts', postRoutes);
 
 // 404 handler for undefined routes
 app.use('*', notFoundHandler);

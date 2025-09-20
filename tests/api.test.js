@@ -30,6 +30,252 @@ describe('API Integration Tests', () => {
     });
   });
 
+  describe('Post API Routes', () => {
+    describe('GET /api/posts', () => {
+      it('should return all posts with pagination', async () => {
+        const response = await request(app)
+          .get('/api/posts')
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.data).toBeInstanceOf(Array);
+        expect(response.body.pagination).toBeDefined();
+        expect(response.body.pagination.currentPage).toBe(1);
+        expect(response.body.pagination.limit).toBe(10);
+      });
+
+      it('should support pagination parameters', async () => {
+        const response = await request(app)
+          .get('/api/posts?page=1&limit=2')
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.pagination.currentPage).toBe(1);
+        expect(response.body.pagination.limit).toBe(2);
+      });
+
+      it('should support search functionality', async () => {
+        const response = await request(app)
+          .get('/api/posts?search=blog')
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.data).toBeInstanceOf(Array);
+      });
+
+      it('should support author filtering', async () => {
+        const response = await request(app)
+          .get('/api/posts?authorId=1')
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.data).toBeInstanceOf(Array);
+      });
+
+      it('should support status filtering', async () => {
+        const response = await request(app)
+          .get('/api/posts?status=published')
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.data).toBeInstanceOf(Array);
+      });
+
+      it('should return 400 for invalid pagination parameters', async () => {
+        const response = await request(app)
+          .get('/api/posts?page=0')
+          .expect(400);
+
+        expect(response.body.success).toBe(false);
+        expect(response.body.message).toContain('Page must be a positive number');
+      });
+    });
+
+    describe('GET /api/posts/stats', () => {
+      it('should return post statistics', async () => {
+        const response = await request(app)
+          .get('/api/posts/stats')
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.data.totalPosts).toBeDefined();
+        expect(response.body.data.timestamp).toBeDefined();
+      });
+    });
+
+    describe('GET /api/posts/:id', () => {
+      it('should return post by ID', async () => {
+        const response = await request(app)
+          .get('/api/posts/1')
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.data.id).toBe(1);
+        expect(response.body.data.title).toBeDefined();
+        expect(response.body.data.content).toBeDefined();
+      });
+
+      it('should return 404 for non-existent post', async () => {
+        const response = await request(app)
+          .get('/api/posts/999')
+          .expect(404);
+
+        expect(response.body.success).toBe(false);
+        expect(response.body.message).toContain('Post with ID 999 not found');
+      });
+
+      it('should return 400 for invalid post ID', async () => {
+        const response = await request(app)
+          .get('/api/posts/invalid')
+          .expect(400);
+
+        expect(response.body.success).toBe(false);
+        expect(response.body.message).toContain('Valid post ID is required');
+      });
+    });
+
+    describe('POST /api/posts', () => {
+      it('should create a new post with valid data', async () => {
+        const postData = {
+          title: 'Test Post',
+          content: 'This is test content for the new post.',
+          authorId: 1,
+          status: 'draft'
+        };
+
+        const response = await request(app)
+          .post('/api/posts')
+          .send(postData)
+          .expect(201);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.message).toBe('Post created successfully');
+        expect(response.body.data.title).toBe('Test Post');
+        expect(response.body.data.content).toBe('This is test content for the new post.');
+        expect(response.body.data.authorId).toBe(1);
+        expect(response.body.data.status).toBe('draft');
+        expect(response.body.data.id).toBeDefined();
+      });
+
+      it('should return 400 for missing required fields', async () => {
+        const postData = {
+          title: '',
+          content: 'Valid content'
+          // authorId missing
+        };
+
+        const response = await request(app)
+          .post('/api/posts')
+          .send(postData)
+          .expect(400);
+
+        expect(response.body.success).toBe(false);
+        expect(response.body.message).toContain('required');
+      });
+
+      it('should return 400 for invalid status', async () => {
+        const postData = {
+          title: 'Test Post',
+          content: 'Valid content',
+          authorId: 1,
+          status: 'invalid-status'
+        };
+
+        const response = await request(app)
+          .post('/api/posts')
+          .send(postData)
+          .expect(400);
+
+        expect(response.body.success).toBe(false);
+        expect(response.body.message).toContain('Status must be either "draft" or "published"');
+      });
+    });
+
+    describe('PUT /api/posts/:id', () => {
+      it('should update post with valid data', async () => {
+        const postData = {
+          title: 'Updated Post Title',
+          content: 'Updated post content',
+          status: 'published',
+          requestingUserId: 1
+        };
+
+        const response = await request(app)
+          .put('/api/posts/1')
+          .send(postData)
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.message).toBe('Post updated successfully');
+        expect(response.body.data.title).toBe('Updated Post Title');
+      });
+
+      it('should return 404 for non-existent post', async () => {
+        const postData = {
+          title: 'Updated Title',
+          content: 'Updated content',
+          requestingUserId: 1
+        };
+
+        const response = await request(app)
+          .put('/api/posts/999')
+          .send(postData)
+          .expect(404);
+
+        expect(response.body.success).toBe(false);
+        expect(response.body.message).toContain('Post with ID 999 not found');
+      });
+
+      it('should return 400 for invalid post ID', async () => {
+        const postData = {
+          title: 'Updated Title',
+          content: 'Updated content'
+        };
+
+        const response = await request(app)
+          .put('/api/posts/invalid')
+          .send(postData)
+          .expect(400);
+
+        expect(response.body.success).toBe(false);
+        expect(response.body.message).toContain('Valid post ID is required');
+      });
+    });
+
+    describe('DELETE /api/posts/:id', () => {
+      it('should delete existing post', async () => {
+        const response = await request(app)
+          .delete('/api/posts/2')
+          .send({ requestingUserId: 2 })
+          .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.message).toBe('Post deleted successfully');
+        expect(response.body.data.id).toBe(2);
+      });
+
+      it('should return 404 for non-existent post', async () => {
+        const response = await request(app)
+          .delete('/api/posts/999')
+          .send({ requestingUserId: 1 })
+          .expect(404);
+
+        expect(response.body.success).toBe(false);
+        expect(response.body.message).toContain('Post with ID 999 not found');
+      });
+
+      it('should return 400 for invalid post ID', async () => {
+        const response = await request(app)
+          .delete('/api/posts/invalid')
+          .send({ requestingUserId: 1 })
+          .expect(400);
+
+        expect(response.body.success).toBe(false);
+        expect(response.body.message).toContain('Valid post ID is required');
+      });
+    });
+  });
+
   describe('User API Routes', () => {
     describe('GET /api/users', () => {
       it('should return all users with pagination', async () => {
